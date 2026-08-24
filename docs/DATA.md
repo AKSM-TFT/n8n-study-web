@@ -2,6 +2,8 @@
 
 All data lives in one Supabase project: Postgres (relational + `pgvector`), Supabase Auth, and Supabase Storage. This doc defines the target schema and reconciles it against the columns/queries the existing n8n workflows already assume (extracted directly from `n8n/*.json`, not guessed) — see the migration notes at the bottom.
 
+This schema is implemented as executable SQL in [`supabase/migrations/`](../supabase/migrations). If you change something here, update the corresponding migration (or add a new one — never edit an already-applied migration file) so this doc and the real database don't drift apart.
+
 ## Conventions
 - Primary keys: `uuid default gen_random_uuid()`.
 - Every table scoped to a user (directly or via `directory_id`) has Row-Level Security enabled — RLS is the real access boundary, the server's JWT check is a second gate, not a substitute.
