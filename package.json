@@ -1,0 +1,9 @@
+{
+  "name": "n8n-study-web-tooling",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Repo-root tooling only (Supabase CLI). The actual app lives in client/ and server/.",
+  "devDependencies": {
+    "supabase": "^2.115.0"
+  }
+}
