@@ -1,0 +1,474 @@
+{
+  "name": "Multimodal RAG Quiz Workflow - Vector SubWorkflow",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "bdbfb376-fce4-435d-af22-3c59816f6812",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -752,
+        208
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "PeNCTkwpB8SN5XaQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst splitData = $(\"Split Out Files\").item.json;\n\n// 1. Get the binary buffer from n8n's internal storage\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n\n// 2. Convert buffer to raw base64 string\nconst rawBase64 = buffer.toString('base64');\n\n// 3. Construct the full Data URL required by vision LLMs\nconst mimeType = splitData.mime_type || item.binary.data.mimeType || 'image/png';\nconst dataUrl = `data:${mimeType};base64,${rawBase64}`;\n\nreturn [{\n    json: {\n        fileName: splitData.name,\n        mimeType: splitData.mime_type,\n        fileId: splitData.id,\n        folderId: splitData.folder_id,\n        topicName: splitData.folder_name,\n        imageBase64: dataUrl // Ready to pass directly to LLM payload\n    },\n    binary: item.binary\n}];"
+      },
+      "id": "eae3d394-0d15-40f5-a499-5315fb3ed44c",
+      "name": "Convert Image to Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "9be39e88-03e6-42b3-bfce-3f02ddba1ab6",
+                    "leftValue": "={{ $json.mime_type }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pdf"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "805f3fea-dea8-489c-8d47-36e00e85029c",
+                    "leftValue": "={{ $json.mime_type }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "images"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1d41e28b-7505-4862-9c72-623eb4a197e3",
+      "name": "File Type Check",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -528,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "item_list",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1200,
+        208
+      ],
+      "id": "8eb4f9e6-a588-4a7f-a892-f23f0588d77d",
+      "name": "When Called By Main Workflow"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "item_list",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -976,
+        208
+      ],
+      "id": "ea16e2f2-8d80-4a31-9193-dd1ac85c60f0",
+      "name": "Split Out Files"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        32,
+        64
+      ],
+      "id": "f006cc09-a40a-48da-9afa-4786bfa31ad4",
+      "name": "Extract PDF Text"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1c2d3e4-f5a6-4708-8901-a2b3c4d5e6f1",
+              "name": "content",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            },
+            {
+              "id": "b1c2d3e4-f5a6-4708-8901-a2b3c4d5e6f2",
+              "name": "fileId",
+              "value": "={{ $('File Type Check').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "b1c2d3e4-f5a6-4708-8901-a2b3c4d5e6f3",
+              "name": "fileName",
+              "value": "={{ $('File Type Check').item.json.folder_name }}",
+              "type": "string"
+            },
+            {
+              "id": "b1c2d3e4-f5a6-4708-8901-a2b3c4d5e6f4",
+              "name": "folderId",
+              "value": "={{ $('File Type Check').item.json.folder_id }}",
+              "type": "string"
+            },
+            {
+              "id": "b1c2d3e4-f5a6-4708-8901-a2b3c4d5e6f5",
+              "name": "topicName",
+              "value": "={{ $('File Type Check').item.json.folder_name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        64
+      ],
+      "id": "143de31e-e200-4b20-a1d1-1d45c113d2e5",
+      "name": "Normalize PDF Fields"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d3e4f5a6-b7c8-492a-a123-c4d5e6f70813",
+              "name": "content",
+              "value": "={{ $json.choices[0].message.content }}",
+              "type": "string"
+            },
+            {
+              "id": "d3e4f5a6-b7c8-492a-a123-c4d5e6f70814",
+              "name": "fileId",
+              "value": "={{ $('Convert Image to Base64').item.json.fileId }}",
+              "type": "string"
+            },
+            {
+              "id": "d3e4f5a6-b7c8-492a-a123-c4d5e6f70815",
+              "name": "fileName",
+              "value": "={{ $('Convert Image to Base64').item.json.fileName }}",
+              "type": "string"
+            },
+            {
+              "id": "d3e4f5a6-b7c8-492a-a123-c4d5e6f70816",
+              "name": "folderId",
+              "value": "={{ $('Convert Image to Base64').item.json.folderId }}",
+              "type": "string"
+            },
+            {
+              "id": "d3e4f5a6-b7c8-492a-a123-c4d5e6f70817",
+              "name": "topicName",
+              "value": "={{ $('Convert Image to Base64').item.json.topicName }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        368
+      ],
+      "id": "f509bcdc-50ec-4661-8f49-b0bb0ac34cd4",
+      "name": "Normalize Image Fields"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO study_vectors (folder_id, topic_name, file_id, file_name, content, embedding) VALUES ($1, $2, $3, $4, $5, $6::vector) ON CONFLICT (file_id) DO NOTHING",
+        "options": {
+          "queryReplacement": "={{ [$json.folderId, $json.topicName, $json.fileId, $json.fileName, $json.content, '[' + $json.embedding.join(',') + ']'] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        208
+      ],
+      "id": "1ef4e7e2-a222-45c5-bfd2-943fca71d02c",
+      "name": "Insert Vector Row",
+      "credentials": {
+        "postgres": {
+          "id": "9ox8GDEjV3pgivlQ",
+          "name": "Study Vectors Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "huggingFaceApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"moonshotai/Kimi-K3:together\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an advanced visual document analysis AI. Do not show any reasoning, planning, chain-of-thought, or internal analysis of any kind — output ONLY the final structured transcription, starting immediately with the document title. Transcribe all text verbatim, render math formulas using precise LaTeX ($...$), detail visual diagrams/charts, and present the output using clean, structured bold headings and bullet points. For every multiple-choice question, explicitly state the correct answer on its own line as 'Answer: X' based on any highlighting or markup shown in the image.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Describe the contents of this study material image in complete detail based on your system instructions. Do not include any reasoning or thinking steps in your output.\"\n        },\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": \"{{ $json.imageBase64 }}\"\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 3072,\n  \"temperature\": 0.2\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        32,
+        368
+      ],
+      "id": "65e9bf8b-d9e8-4744-880f-8cb612235cc5",
+      "name": "Image to Text",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "huggingFaceApi": {
+          "id": "7E9iTY6LIQOUL4Sk",
+          "name": "Hugging Face account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "huggingFaceApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"inputs\": $json.content, \"options\": { \"wait_for_model\": true } } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        608,
+        208
+      ],
+      "id": "ce34c153-71b4-4089-ac99-66d55a7f3b2f",
+      "name": "Generate Embeddings",
+      "credentials": {
+        "huggingFaceApi": {
+          "id": "7E9iTY6LIQOUL4Sk",
+          "name": "Hugging Face account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "File Type Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Image to Base64": {
+      "main": [
+        [
+          {
+            "node": "Image to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Type Check": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Convert Image to Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Called By Main Workflow": {
+      "main": [
+        [
+          {
+            "node": "Split Out Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Files": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Normalize PDF Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize PDF Fields": {
+      "main": [
+        [
+          {
+            "node": "Generate Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Image Fields": {
+      "main": [
+        [
+          {
+            "node": "Generate Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image to Text": {
+      "main": [
+        [
+          {
+            "node": "Normalize Image Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Embeddings": {
+      "main": [
+        [
+          {
+            "node": "Insert Vector Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "1e8f6657-2366-4921-9af1-72635179f392",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5e02a429e3eeab4c190ec8ec6582a93f85bf5317303064c958b118746126e5f"
+  },
+  "nodeGroups": [],
+  "id": "F7SENRKkAvn4dpKd",
+  "tags": [
+    {
+      "updatedAt": "2026-07-31T09:31:04.808Z",
+      "createdAt": "2026-07-31T09:31:04.808Z",
+      "id": "fBPDgsxs6vDYlXP3",
+      "name": "personal"
+    },
+    {
+      "updatedAt": "2026-08-20T04:01:34.176Z",
+      "createdAt": "2026-08-20T04:01:34.176Z",
+      "id": "wKxHLZBth0hl9Iq3",
+      "name": "sub-workflow"
+    }
+  ]
+}

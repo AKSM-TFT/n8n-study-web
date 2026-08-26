@@ -1,0 +1,719 @@
+{
+  "name": "Multimodal RAG Quiz Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "3e0f3737-4f63-4db2-961e-bf013dd674bd",
+      "name": "Schedule Trigger (Every 5 Mins)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat-session",
+        "options": {}
+      },
+      "id": "e4ef5d14-18c5-467a-87a3-2bacac5ba13d",
+      "name": "Webhook Trigger (Chat Input)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        384,
+        880
+      ],
+      "webhookId": "c3757793-d2ad-432a-ad22-976d72bab210"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f2a6d9c0-4b7e-4a1d-9c3f-8e6a1b2c3d4e",
+              "leftValue": "={{ $json.body.message || $json.body.query }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fc1949d8-655c-4866-bec0-b7f204093535",
+      "name": "Action Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        608,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT folder_id, topic_name FROM study_vectors ORDER BY topic_name",
+        "options": {}
+      },
+      "id": "6df14564-d2c8-4ebf-b90f-533cfad88a80",
+      "name": "Fetch Available Topics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        848,
+        1008
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "9ox8GDEjV3pgivlQ",
+          "name": "Study Vectors Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst uniqueTopics = [];\nconst map = new Map();\n\nfor (const item of items) {\n  if(!map.has(item.json.folder_id)){\n    map.set(item.json.folder_id, true);\n    uniqueTopics.push({\n      folder_id: item.json.folder_id,\n      topic_name: item.json.topic_name\n    });\n  }\n}\n\nreturn [{ json: { available_topics: uniqueTopics } }];"
+      },
+      "id": "494c3a52-8238-410a-9ad0-39a6f1cab16d",
+      "name": "Deduplicate Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "63fbf982-c7b9-423e-a4d8-a949df5c5b09",
+      "name": "Respond Available Topics",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $json.body.message || $json.body.query;\n\nconst response = await this.helpers.httpRequestWithAuthentication.call(this, 'huggingFaceApi', {\n  method: 'POST',\n  url: 'https://api-inference.huggingface.co/models/sentence-transformers/all-mpnet-base-v2',\n  body: {\n    inputs: message,\n    options: { wait_for_model: true },\n  },\n  json: true,\n});\n\nreturn [{\n  json: {\n    embedding: response,\n  },\n}];"
+      },
+      "id": "880b95e6-d14e-4548-bbd1-b8787756ce10",
+      "name": "Embed User Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content FROM study_vectors WHERE folder_id = $1 ORDER BY embedding <=> $2::vector LIMIT 5",
+        "options": {
+          "queryReplacement": "={{ [ $node[\"Webhook Trigger (Chat Input)\"].json.body.folder_id, '[' + $json.embedding.join(',') + ']' ] }}"
+        }
+      },
+      "id": "18bc1901-ba59-43d5-8765-7a09cd233613",
+      "name": "Folder Isolated Vector RPC Search",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1072,
+        736
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "9ox8GDEjV3pgivlQ",
+          "name": "Study Vectors Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst contextText = items.map((item, index) => `--- CHUNK ${index + 1} ---\\n${item.json.content}`).join(\"\\n\\n\");\n\nreturn [{\n    json: {\n        user_message: $node[\"Webhook Trigger (Chat Input)\"].json.body.message,\n        folder_id: $node[\"Webhook Trigger (Chat Input)\"].json.body.folder_id,\n        context: contextText || \"No context available for this specific topic.\"\n    }\n}];"
+      },
+      "id": "c71c13cb-96ab-4888-8fc9-4476bb55ef77",
+      "name": "Format Prompt Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.2\",\n  \"prompt\": {{ JSON.stringify(\"Answer the user query strictly using ONLY the context bounded within the selected topic session.\\n\\nCONTEXT:\\n\" + $json.context + \"\\n\\nUSER QUERY: \" + $json.user_message) }},\n  \"stream\": false\n}",
+        "options": {}
+      },
+      "id": "926fc476-6a00-433d-96c0-958f7a31cced",
+      "name": "Ollama Answer Session Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1520,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"reply\": {{ JSON.stringify($json.response) }}\n}",
+        "options": {}
+      },
+      "id": "4410680a-f7f9-414e-a1c4-30b8747a57e4",
+      "name": "Respond Chat Message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "='1dbh7AH39d5nVrgXit8ko1mJbilfCDWIp' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false ",
+        "returnAll": true,
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        624,
+        384
+      ],
+      "id": "844c3e62-a900-47f5-a283-b1b93ef0d767",
+      "name": "Search files and folders",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "PeNCTkwpB8SN5XaQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        864,
+        384
+      ],
+      "id": "7ac548a5-8fd9-483b-a838-58f226c3e133",
+      "name": "Loop Over Folders"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "='{{ $json.id }}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false ",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "mimeType",
+            "id",
+            "name"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1152,
+        240
+      ],
+      "id": "afd13602-f2af-4420-b21e-087d6b6c11be",
+      "name": "Get Files In Topic Folder",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "PeNCTkwpB8SN5XaQ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "30545da8-4629-452d-87d5-07a083b8602a",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        448
+      ],
+      "id": "8f468463-998d-48a4-b9bf-8edb882bf1e4",
+      "name": "Check If Folder Is Empty"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "F7SENRKkAvn4dpKd",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/F7SENRKkAvn4dpKd",
+          "cachedResultName": "Multimodal RAG Quiz Workflow - Vector SubWorkflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "item_list": "={{ $json.files }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "item_list",
+              "displayName": "item_list",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2576,
+        480
+      ],
+      "id": "09737b6c-0937-4c71-a819-86a842df7880",
+      "name": "Call Sub-Workflow",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fce595aa-28ee-44f6-ab63-7c90dedea65f",
+              "name": "id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "c0ce0eba-ef91-4ac6-994b-56d4b1afa637",
+              "name": "name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "99e0810d-07b3-4858-8557-93f5dee78639",
+              "name": "folder_id",
+              "value": "={{ $('Loop Over Folders').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "3950f66c-c33b-46f5-b751-0c7487466e23",
+              "name": "folder_name",
+              "value": "={{ $('Loop Over Folders').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "7b1ff639-f64d-4675-aabc-4ef980ec7984",
+              "name": "mime_type",
+              "value": "={{ $json.mimeType }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2128,
+        432
+      ],
+      "id": "39f46b91-5e08-4a3a-afb0-789d86551f61",
+      "name": "Edit File Fields"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "files",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        432
+      ],
+      "id": "babd6df3-8c39-4c30-aed6-a23be306f784",
+      "name": "Aggregate Files"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT file_id FROM study_vectors WHERE folder_id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1152,
+        480
+      ],
+      "id": "c564ed07-bf8a-4008-b661-b29840c8d082",
+      "name": "Get Processed File IDs",
+      "credentials": {
+        "postgres": {
+          "id": "9ox8GDEjV3pgivlQ",
+          "name": "Study Vectors Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1392,
+        352
+      ],
+      "id": "38ff7e66-f865-4d79-b874-a6747497737c",
+      "name": "Combine Files And Processed IDs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\n// Items from 'Get Processed File IDs' have a file_id field; items from\n// 'Get Files In Topic Folder' have an id field (Drive file objects).\nconst processedIds = new Set(\n  allItems.filter(item => item.json.file_id !== undefined).map(item => item.json.file_id)\n);\n\nconst files = allItems.filter(item => item.json.id !== undefined);\n\nconst unprocessed = files.filter(item => !processedIds.has(item.json.id));\n\nif (unprocessed.length === 0) {\n  // Keep the pipeline alive: 'Check If Folder Is Empty' must still receive\n  // exactly one item (whether the folder was empty, or every file in it\n  // was already processed) so Loop Over Folders can advance.\n  return [{ json: {} }];\n}\n\nreturn unprocessed;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        352
+      ],
+      "id": "83323310-f7ea-44b7-a414-33b36afae121",
+      "name": "Filter Unprocessed Files"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger (Every 5 Mins)": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger (Chat Input)": {
+      "main": [
+        [
+          {
+            "node": "Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Router": {
+      "main": [
+        [
+          {
+            "node": "Embed User Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Available Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Available Topics": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Topics": {
+      "main": [
+        [
+          {
+            "node": "Respond Available Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed User Message": {
+      "main": [
+        [
+          {
+            "node": "Folder Isolated Vector RPC Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Folder Isolated Vector RPC Search": {
+      "main": [
+        [
+          {
+            "node": "Format Prompt Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Prompt Context": {
+      "main": [
+        [
+          {
+            "node": "Ollama Answer Session Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Answer Session Query": {
+      "main": [
+        [
+          {
+            "node": "Respond Chat Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Folders": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Files In Topic Folder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Processed File IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Files In Topic Folder": {
+      "main": [
+        [
+          {
+            "node": "Combine Files And Processed IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Processed File IDs": {
+      "main": [
+        [
+          {
+            "node": "Combine Files And Processed IDs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Files And Processed IDs": {
+      "main": [
+        [
+          {
+            "node": "Filter Unprocessed Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unprocessed Files": {
+      "main": [
+        [
+          {
+            "node": "Check If Folder Is Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Folder Is Empty": {
+      "main": [
+        [
+          {
+            "node": "Edit File Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit File Fields": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Files": {
+      "main": [
+        [
+          {
+            "node": "Call Sub-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "500b26a4-f827-4738-97b7-21f8184d0a83",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5e02a429e3eeab4c190ec8ec6582a93f85bf5317303064c958b118746126e5f"
+  },
+  "nodeGroups": [],
+  "id": "eWlMmDs3LLyOOr2k",
+  "tags": [
+    {
+      "updatedAt": "2026-08-19T15:44:24.758Z",
+      "createdAt": "2026-08-19T15:44:24.758Z",
+      "id": "GtlCg1YvPW6FYdeL",
+      "name": "work-in-progress"
+    },
+    {
+      "updatedAt": "2026-07-31T09:31:04.808Z",
+      "createdAt": "2026-07-31T09:31:04.808Z",
+      "id": "fBPDgsxs6vDYlXP3",
+      "name": "personal"
+    }
+  ]
+}

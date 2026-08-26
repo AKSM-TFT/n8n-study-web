@@ -1,75 +1,31 @@
-# React + TypeScript + Vite
+# n8n-study-web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A study-tool PWA. Create a directory per topic, upload your own files (PDFs, images), and n8n embeds them into a vector store scoped to that directory. Then chat about the topic or generate a quiz — grounded only in what you uploaded.
 
-Currently, two official plugins are available:
+See `docs/PRODUCT.md` for the full product description, routes, and feature list.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+## Repo layout
+```
+client/   # React + TypeScript + Vite + Tailwind frontend (PWA)
+server/   # Node.js + Express + TypeScript backend — CRUD/auth-proxy layer (not yet scaffolded)
+n8n/      # exported n8n workflows: file ingestion/embedding, RAG chat
+docs/     # architecture, design system, data schema, product docs
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+## Documentation
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — tech stack, how the app runs, directory structure, auth flow, data-flow diagrams
+- [`docs/DESIGN.md`](docs/DESIGN.md) — the design system
+- [`docs/DATA.md`](docs/DATA.md) — Supabase schema (relational + vector) and storage layout
+- [`docs/PRODUCT.md`](docs/PRODUCT.md) — product description, routes, feature index
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`CLAUDE.md` is a short index into these docs for AI-assisted development.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+## Getting started
+The client is the only part scaffolded so far:
 ```
+cd client
+npm install
+npm run dev
+```
+
+`server/` and the PWA manifest/service worker are not yet implemented — see `docs/ARCHITECTURE.md`'s directory structure section for the target layout.
