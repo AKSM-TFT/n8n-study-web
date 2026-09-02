@@ -11,7 +11,7 @@
   --accent: #8a3b12;
   --accent-contrast: #ffffff;
   --success: #3f6b3b;
-  --warning: #946e1e;
+  --warning: #83611b;
   --danger: #8c2f26;
 }
 
@@ -75,6 +75,11 @@
   h3,
   h4 {
     font-family: var(--font-serif);
+    color: var(--color-text);
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
     color: var(--color-text);
   }
 }
